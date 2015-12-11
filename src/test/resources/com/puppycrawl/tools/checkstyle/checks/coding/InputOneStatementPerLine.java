@@ -210,6 +210,7 @@ public class InputOneStatementPerLine {
      *  One statement inside for block is legal.
      */
     for (int i = 0; i < 10; i++) one = 5;
+    for (int i = 0; i < 10; i++) { one = 5; }
 
     /**
      *  One statement inside for block where
@@ -237,5 +238,42 @@ public class InputOneStatementPerLine {
      *  One statement inside for block is legal
      */
     for (;;) { one = 5; }
+  }
+
+  public void foo6() {
+      /**
+       * legal lambda expression on single line
+       */
+//      new javax.swing.JCheckBox().addActionListener((final java.awt.event.ActionEvent e) -> { one = 5; });
+      /**
+       * Illegal lambda expression on single line
+       */
+//      new javax.swing.JCheckBox().addActionListener((final java.awt.event.ActionEvent e) -> { one = 5; one = 5; });
+//      new javax.swing.JCheckBox().addActionListener((final java.awt.event.ActionEvent e) -> { one = 5;  }); one = 5;
+  }
+  public void foo7() {
+
+    /**
+     * Various legal do/while
+     */
+    do { one = 5; } while(one > 0);
+    do  one = 5; while(one > 0);
+    while(one > 0) one = 5;
+    while(one > 0) { one = 5; }
+
+    /**
+     * Statement before for/do/while not legal.
+     */
+    one = 5; for(int i = 0; i < 3; i++) { one = 5; }
+    one = 5; do { one = 5; } while(false);
+    one = 5; while(one > 0) one = 5;
+
+    /**
+     * Single line For loop with multiple statements illegal.
+     */
+    do { one = 5; one = 5; } while(false);
+    for(int i = 0; i < 3; i++) one = 5; one = 5;
+    for(int i = 0; i < 3; i++) { one = 5; one = 5; }
+    for(int i = 0; i < 3; i++) { one = 5; } one = 5;
   }
 }

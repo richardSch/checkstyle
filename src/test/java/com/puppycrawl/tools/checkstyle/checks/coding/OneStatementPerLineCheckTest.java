@@ -54,6 +54,15 @@ public class OneStatementPerLineCheckTest extends BaseCheckTestSupport {
             "169:23: " + getCheckMessage(MSG_KEY),
             "189:19: " + getCheckMessage(MSG_KEY),
             "192:59: " + getCheckMessage(MSG_KEY),
+//            "251:111: " + getCheckMessage(MSG_KEY), // requires Java 8
+//            "252:116: " + getCheckMessage(MSG_KEY),
+            "267:27: " + getCheckMessage(MSG_KEY),
+            "268:26: " + getCheckMessage(MSG_KEY),
+            "269:36: " + getCheckMessage(MSG_KEY),
+            "274:26: " + getCheckMessage(MSG_KEY),
+            "275:48: " + getCheckMessage(MSG_KEY),
+            "276:50: " + getCheckMessage(MSG_KEY),
+            "277:52: " + getCheckMessage(MSG_KEY),
         };
 
         verify(checkConfig,

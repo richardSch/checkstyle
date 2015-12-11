@@ -58,11 +58,23 @@ import com.puppycrawl.tools.checkstyle.api.TokenTypes;
  *     ; var2 = 2; //violation here
  *     int o = 1, p = 2,
  *     r = 5; int t; //violation here
+ *     good(); for(int i = 0; i < 3; i++) { bad(); }
+ *     good(); do { bad(); } while(false);
+ *     good(); do { bad(); } while(false);
+ *     good(); bad();
+ *     cb.addActionListener((final ActionEvent e) -> { good(); }); bad();
+ *     cb.addActionListener((final ActionEvent e) -> { good(); bad();
+ *         });
+ *     do { good(); bad(); } while(false);
+ *     for(int i = 0; i < 3; i++) good(); bad();
+ *     for(int i = 0; i < 3; i++) { good(); bad(); }
+ *     for(int i = 0; i < 3; i++) { good(); } bad();
  * </pre>
  *
  * @author Alexander Jesse
  * @author Oliver Burn
  * @author Andrei Selkin
+ * @author Richard Schulte
  */
 public final class OneStatementPerLineCheck extends Check {
 
@@ -78,14 +90,9 @@ public final class OneStatementPerLineCheck extends Check {
     private int lastStatementEnd = -1;
 
     /**
-     * Hold the line-number where the last 'for-loop' statement ended.
+     * Lambda expression
      */
-    private int forStatementEnd = -1;
-
-    /**
-     * The for-header usually has 3 statements on one line, but THIS IS OK.
-     */
-    private boolean inForHeader;
+    private DetailAST lambda = null;
 
     @Override
     public int[] getDefaultTokens() {
@@ -95,8 +102,9 @@ public final class OneStatementPerLineCheck extends Check {
     @Override
     public int[] getAcceptableTokens() {
         return new int[]{
-            TokenTypes.SEMI, TokenTypes.FOR_INIT,
-            TokenTypes.FOR_ITERATOR,
+            TokenTypes.SEMI,
+            TokenTypes.EMPTY_STAT,
+            TokenTypes.ELIST,
         };
     }
 
@@ -107,76 +115,103 @@ public final class OneStatementPerLineCheck extends Check {
 
     @Override
     public void beginTree(DetailAST rootAST) {
-        inForHeader = false;
         lastStatementEnd = -1;
-        forStatementEnd = -1;
     }
 
     @Override
     public void visitToken(DetailAST ast) {
         switch (ast.getType()) {
-            case TokenTypes.SEMI:
-                DetailAST currentStatement = ast;
-                if (isMultilineStatement(currentStatement)) {
-                    currentStatement = ast.getPreviousSibling();
+        case TokenTypes.EMPTY_STAT: // fall through to SEMI
+        case TokenTypes.SEMI:
+            DetailAST currentStatement = multilineStatement(ast);
+            DetailAST sibling = ast.getPreviousSibling();
+            // skip FOR_ITERATOR and EXPR in 'for (;;) EXPR;', 'do EXPR; while();', and
+            // 'do { EXPR; } while();'
+            boolean skip = false;
+            while(sibling != null && !skip && ! isSemi(sibling)) {
+                skip = sibling.getType() == TokenTypes.FOR_CONDITION
+                    || sibling.getType() == TokenTypes.FOR_ITERATOR
+                    || sibling.getType() == TokenTypes.DO_WHILE;
+                sibling = sibling.getPreviousSibling();
+            }
+
+            // skip EXPR in 'for(;;) { EXPR; }'
+            if(ast.getParent() != null && ast.getParent().getType() == TokenTypes.SLIST) {
+                sibling = ast.getParent().getPreviousSibling();
+                while(sibling != null && !skip && ! isSemi(sibling)) {
+                    skip = sibling.getType() == TokenTypes.FOR_ITERATOR;
+                    sibling = sibling.getPreviousSibling();
                 }
-                if (isOnTheSameLine(currentStatement, lastStatementEnd,
-                        forStatementEnd) && !inForHeader) {
+
+                // don't skip EXPR2 in  in 'for(;;) { EXPR1; EXPR2; }'
+                sibling = ast.getPreviousSibling();
+                while(sibling != null && skip) {
+                    skip = ! isSemi(sibling);
+                    //sibling.getType() != TokenTypes.SEMI;
+                    sibling = sibling.getPreviousSibling();
+                }
+            }
+            if(!skip) {
+                if (isOnTheSameLine(currentStatement)) {
                     log(ast, MSG_KEY);
                 }
-                break;
-            case TokenTypes.FOR_ITERATOR:
-                forStatementEnd = ast.getLineNo();
-                break;
-            default:
-                inForHeader = true;
-                break;
+            }
+            break;
+        default:
+            break;
         }
     }
 
     @Override
     public void leaveToken(DetailAST ast) {
         switch (ast.getType()) {
-            case TokenTypes.SEMI:
+        case TokenTypes.EMPTY_STAT: // fall through to SEMI
+        case TokenTypes.SEMI:
+            if(ast.getPreviousSibling() != null && ast.getPreviousSibling().getType() != TokenTypes.FOR_INIT) {
                 lastStatementEnd = ast.getLineNo();
-                forStatementEnd = -1;
-                break;
-            case TokenTypes.FOR_ITERATOR:
-                inForHeader = false;
-                break;
-            default:
-                break;
+            }
+            lambda = null;
+            break;
+        case TokenTypes.ELIST:
+            if(ast.getFirstChild() != null && ast.getFirstChild().getType() == TokenTypes.LAMBDA) {
+                lambda = ast.getFirstChild();
+            }
+            break;
+        default:
+            break;
         }
     }
 
     /**
-     * Checks whether two statements are on the same line.
+     * Checks if the statement is a SEMI or EMPTY_STAT
      * @param ast token for the current statement.
-     * @param lastStatementEnd the line-number where the last statement ended.
-     * @param forStatementEnd the line-number where the last 'for-loop'
-     *                        statement ended.
-     * @return true if two statements are on the same line.
+     * @return true if ast is a SEMI or EMPTY_STAT
      */
-    private static boolean isOnTheSameLine(DetailAST ast, int lastStatementEnd,
-                                           int forStatementEnd) {
-        return lastStatementEnd == ast.getLineNo() && forStatementEnd != ast.getLineNo();
+    private boolean isSemi(DetailAST ast) {
+        return ast.getType() == TokenTypes.SEMI || ast.getType() == TokenTypes.EMPTY_STAT;
     }
 
     /**
-     * Checks whether statement is multiline.
+     * Checks whether the statement is on the same line as the previous statement
      * @param ast token for the current statement.
-     * @return true if one statement is distributed over two or more lines.
+     * @return true if the statement is on the same line as the previous statement
      */
-    private static boolean isMultilineStatement(DetailAST ast) {
-        final boolean multiline;
-        if (ast.getPreviousSibling() == null) {
-            multiline = false;
+    private boolean isOnTheSameLine(DetailAST ast) {
+        return lastStatementEnd == ast.getLineNo()
+            && (lambda == null || ast.getLineNo() != lambda.getLineNo());
+    }
+
+    /**
+     * Returns starting node for a statement, handling multi line statements.
+     * @param ast token
+     * @return node where ast starts
+     */
+    private DetailAST multilineStatement(DetailAST ast) {
+        if(ast.getPreviousSibling() != null
+           && ast.getPreviousSibling().getLineNo() != ast.getLineNo()
+           && ast.getParent() != null) {
+            return ast.getPreviousSibling();
         }
-        else {
-            final DetailAST prevSibling = ast.getPreviousSibling();
-            multiline = prevSibling.getLineNo() != ast.getLineNo()
-                    && ast.getParent() != null;
-        }
-        return multiline;
+        return ast;
     }
 }
